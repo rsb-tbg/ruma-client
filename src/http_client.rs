@@ -7,6 +7,7 @@ use bytes::BufMut;
 use ruma::api::{
     AppserviceUserIdentity, OutgoingRequest,
     auth_scheme::{AuthScheme, SendAccessToken},
+    error::IntoHttpError,
     path_builder::PathBuilder,
 };
 
@@ -48,6 +49,41 @@ pub trait HttpClient: Sync {
 pub trait DefaultConstructibleHttpClient: HttpClient {
     /// Creates a new HTTP client with default configuration.
     fn default() -> Self;
+}
+
+fn is_empty(identity: &AppserviceUserIdentity<'_>) -> bool {
+    identity.user_id.is_none() && identity.device_id.is_none()
+}
+
+/// Add this identity to the given URI, if the identity is not empty.
+pub fn maybe_add_to_uri(
+    identity: &AppserviceUserIdentity<'_>,
+    uri: &mut http::Uri,
+) -> Result<(), IntoHttpError> {
+    if is_empty(identity) {
+        // There will be no change to the URI.
+        return Ok(());
+    }
+
+    // Serialize the query arguments of the identity.
+    let identity_query = serde_html_form::to_string(identity)?;
+
+    // Add the query arguments to the URI.
+    let mut parts = uri.clone().into_parts();
+
+    let path_and_query_with_user_id = match &parts.path_and_query {
+        Some(path_and_query) => match path_and_query.query() {
+            Some(_) => format!("{path_and_query}&{identity_query}"),
+            None => format!("{path_and_query}?{identity_query}"),
+        },
+        None => format!("/?{identity_query}"),
+    };
+
+    parts.path_and_query = Some(path_and_query_with_user_id.try_into().map_err(http::Error::from)?);
+
+    *uri = parts.try_into().map_err(http::Error::from)?;
+
+    Ok(())
 }
 
 /// Convenience functionality on top of `HttpClient`.
@@ -123,7 +159,7 @@ pub trait HttpClientExt: HttpClient {
             access_token,
             path_builder_input,
             request,
-            |uri| Ok(identity.maybe_add_to_uri(uri.uri_mut())?),
+            |uri| Ok(maybe_add_to_uri(&identity, uri.uri_mut())?),
         )
     }
 }

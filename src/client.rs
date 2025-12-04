@@ -23,7 +23,10 @@ use ruma::{
     presence::PresenceState,
 };
 
-use crate::{Error, HttpClient, ResponseError, ResponseResult, send_customized_request};
+use crate::{
+    Error, HttpClient, ResponseError, ResponseResult, http_client::maybe_add_to_uri,
+    send_customized_request,
+};
 
 mod builder;
 
@@ -141,7 +144,7 @@ impl<C: HttpClient> Client<C> {
         for<'a> R::Authentication: AuthScheme<Input<'a> = SendAccessToken<'a>>,
         R::PathBuilder: SupportedPathBuilder,
     {
-        self.send_customized_request(request, |uri| Ok(identity.maybe_add_to_uri(uri.uri_mut())?))
+        self.send_customized_request(request, |uri| Ok(maybe_add_to_uri(&identity, uri.uri_mut())?))
             .await
     }
 
